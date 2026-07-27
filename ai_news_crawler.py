@@ -16,6 +16,7 @@ import argparse
 import datetime
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -25,7 +26,7 @@ import urllib3
 
 import requests
 from bs4 import BeautifulSoup
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 from email.utils import parsedate_to_datetime
 from tqdm import tqdm
 import colorama
@@ -45,6 +46,15 @@ COLOR_CYAN = Fore.CYAN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCES_FILE = os.path.join(BASE_DIR, "sources.json")
 DEFAULT_TIMEOUT = 15
+REQUEST_DELAY_RANGE = (1.5, 3.5)
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/605.1.15",
+]
 
 SUPPORTED_LANGS = {"zh-CN": "简体中文", "zh-TW": "繁體中文", "en": "English", "ja": "日本語"}
 
@@ -70,7 +80,67 @@ def build_session(timeout: int = DEFAULT_TIMEOUT) -> requests.Session:
     s.trust_env = True  # allow HTTP_PROXY / HTTPS_PROXY from env
     # default to not verify SSL so local testing can bypass cert issues; individual calls also pass verify=False
     s.verify = False
+    s.headers.update({
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": random.choice(USER_AGENTS),
+    })
     return s
+
+
+def get_random_user_agent() -> str:
+    return random.choice(USER_AGENTS)
+
+
+def random_delay():
+    delay = random.uniform(*REQUEST_DELAY_RANGE)
+    time.sleep(delay)
+
+
+def render_with_selenium(url: str, timeout: int = DEFAULT_TIMEOUT) -> Optional[str]:
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+    except ImportError:
+        eprint(color_text("Warning: Selenium or webdriver-manager is not installed; SPA rendering skipped.", COLOR_YELLOW))
+        return None
+
+    try:
+        options = Options()
+        options.headless = True
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument(f"--user-agent={get_random_user_agent()}")
+        options.add_argument("--window-size=1920,1080")
+        service = Service(ChromeDriverManager().install())
+        with webdriver.Chrome(service=service, options=options) as driver:
+            driver.set_page_load_timeout(timeout)
+            driver.get(url)
+            time.sleep(2)
+            return driver.page_source
+    except Exception as e:
+        eprint(color_text(f"Warning: Selenium rendering failed for {url}: {e}", COLOR_YELLOW))
+        return None
+
+
+def fetch_page_content(url: str, session: requests.Session, use_selenium: bool = False) -> Optional[str]:
+    if use_selenium:
+        rendered = render_with_selenium(url, DEFAULT_TIMEOUT)
+        if rendered:
+            return rendered
+
+    try:
+        session.headers["User-Agent"] = get_random_user_agent()
+        resp = session.get(url, timeout=DEFAULT_TIMEOUT, verify=False)
+        resp.raise_for_status()
+        return resp.content.decode("utf-8", errors="replace")
+    except Exception as e:
+        eprint(color_text(f"Warning: request failed for {url}: {e}", COLOR_YELLOW))
+        return None
 
 
 def parse_feed(xml_bytes: bytes) -> List[Dict[str, str]]:
@@ -280,20 +350,36 @@ PARSERS = {
 }
 
 
-def translate_text_safe(text: str, target_lang: str) -> Tuple[str, bool, Optional[str]]:
+TRANSLATOR_PROVIDERS = [
+    ("GoogleTranslator", GoogleTranslator),
+    ("MyMemoryTranslator", MyMemoryTranslator),
+]
+
+
+def translate_text_safe(text: str, target_lang: str, max_retries: int = 2) -> Tuple[str, bool, Optional[str]]:
     # returns (translated_text, success, error_message)
     if not text:
         return "", True, None
-    try:
-        translator = GoogleTranslator(source="auto", target=target_lang)
-        out = translator.translate(text)
-        return out, True, None
-    except Exception:
-        # capture full traceback for diagnostics
-        err = traceback.format_exc()
-        short = err.splitlines()[-1] if err else "Unknown translation error"
-        eprint(color_text(f"Warning: translation failed: {short}", COLOR_YELLOW))
-        return text, False, err
+
+    errors = []
+    for name, translator_cls in TRANSLATOR_PROVIDERS:
+        attempt = 1
+        while attempt <= max_retries:
+            try:
+                translator = translator_cls(source="auto", target=target_lang)
+                out = translator.translate(text)
+                return out, True, None
+            except Exception:
+                err = traceback.format_exc()
+                short = err.splitlines()[-1] if err else "Unknown translation error"
+                errors.append(f"{name} attempt {attempt}: {short}")
+                if attempt < max_retries:
+                    time.sleep(1 * attempt)
+                attempt += 1
+        # try next provider after max retries
+    final_error = "; ".join(errors)
+    eprint(color_text(f"Warning: translation failed after retries: {final_error}", COLOR_YELLOW))
+    return text, False, final_error
 
 
 def append_translation_log(traceback_str: str, source: str, link: str, field: str, original_text: str, translated_to: str = ""):
@@ -417,11 +503,20 @@ def main():
     for src in tqdm(selected, desc="Sources", unit="source"):
         name = src.get("name")
         url = src.get("url")
+        renderer = src.get("renderer", "").lower() == "selenium"
         try:
             # fetch list page or feed
-            resp = session.get(url, timeout=DEFAULT_TIMEOUT, verify=False)
-            resp.raise_for_status()
-            content = resp.content
+            html = None
+            if renderer:
+                html = fetch_page_content(url, session, use_selenium=True)
+            if html is None:
+                session.headers["User-Agent"] = get_random_user_agent()
+                resp = session.get(url, timeout=DEFAULT_TIMEOUT, verify=False)
+                resp.raise_for_status()
+                content = resp.content
+            else:
+                content = html.encode("utf-8")
+            random_delay()
             items: List[Dict[str, str]] = []
             # if feed-like
             if url.endswith(".xml") or url.endswith("/feed/") or b"<rss" in content[:200].lower() or b"<feed" in content[:200].lower():
@@ -465,14 +560,20 @@ def main():
                 body = ""
                 image = ""
                 if link:
-                    try:
-                        r2 = session.get(link, timeout=DEFAULT_TIMEOUT, verify=False)
-                        r2.raise_for_status()
-                        html = r2.content.decode("utf-8", errors="replace")
+                    html = None
+                    if renderer:
+                        html = fetch_page_content(link, session, use_selenium=True)
+                    if html is None:
+                        try:
+                            session.headers["User-Agent"] = get_random_user_agent()
+                            r2 = session.get(link, timeout=DEFAULT_TIMEOUT, verify=False)
+                            r2.raise_for_status()
+                            html = r2.content.decode("utf-8", errors="replace")
+                        except Exception:
+                            html = None
+                    if html:
                         body, image = extract_article_body_and_image(html, link)
-                    except Exception:
-                        # non-fatal
-                        pass
+                    random_delay()
 
                 # translation handling: keep original in title/summary, translated in *_translated
                 title_translated = ""

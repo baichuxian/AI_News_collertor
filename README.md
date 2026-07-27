@@ -1,6 +1,3 @@
-# AI_News_collertor
-一个支持多源抓取和四语言翻译的 AI 新闻聚合工具，让你轻松掌握全球 AI 动态。
-
 # AI News Aggregator
 
 专业、稳健的 AI 新闻聚合器（requests + BeautifulSoup），支持多语言翻译、24 小时时间过滤、列表页解析与 RSS。
@@ -11,6 +8,8 @@
 - 输出标题、发布时间、摘要、原文链接、正文（若能抓取）、首张配图（若能抓取）
 - 支持翻译：简体中文(zh-CN)、繁体中文(zh-TW)、英语(en)、日语(ja)
 - 进度条（tqdm）、控制台彩色输出、错误隔离（某源失败不影响其它源）
+- 支持 Selenium 渲染 SPA 站点（需要安装 selenium 和 webdriver-manager）
+- 内置 User-Agent 轮换与随机访问延迟，提升反爬虫规避能力
 
 安装
 ```powershell
@@ -45,8 +44,8 @@ py ai_news_crawler.py --list-sources
 - 以及基础 RSS 源：MIT Technology Review AI, VentureBeat AI, TechCrunch AI, AI Trends, ArXiv cs.AI, OpenAI, DeepMind
 
 注意事项与建议
-- 某些站点为 SPA/JS 渲染（例如部分动态更新页、或通过脚本载入），静态请求可能无法抓到完整列表或正文。若需要稳定抓取这类站点，建议后续引入 Selenium 或 Playwright。
-- 翻译使用第三方无密钥翻译器，可能受限频率或网络限制，翻译失败将回退到原文并打印警告。脚本会在 JSON 中写入 `translation_error` 字段以便排查具体错误。
+- 某些站点为 SPA/JS 渲染（例如部分动态更新页、或通过脚本载入），静态请求可能无法抓到完整列表或正文。脚本已支持 Selenium 渲染这类站点，若需要使用请安装 `selenium` 和 `webdriver-manager`。
+- 翻译使用第三方无密钥翻译器，脚本已增加多服务商重试逻辑以提升可靠性。翻译失败将回退到原文并打印警告。脚本会在 JSON 中写入 `translation_error` 字段以便排查具体错误。
 - 若需要通过代理抓国外源，请在系统环境里设置 `HTTP_PROXY` / `HTTPS_PROXY`，requests 会自动识别。
 - Windows 用户如遇 SSL 证书错误，可设置环境变量或使用代理。
 

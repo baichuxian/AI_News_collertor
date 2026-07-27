@@ -1,0 +1,16 @@
+[
+  {"name": "DeepSeek", "url": "https://deepseek.com/news", "type": "官网新闻/公告"},
+  {"name": "Kimi (月之暗面)", "url": "https://www.moonshot.cn/news", "type": "官网动态"},
+  {"name": "豆包 (Doubao)", "url": "https://www.doubao.com/update", "type": "版本更新日志", "renderer": "selenium"},
+  {"name": "通义千问 (Qwen)", "url": "https://qwenlm.ai/blog/", "type": "官方技术博客", "renderer": "selenium"},
+  {"name": "xAI (Grok)", "url": "https://x.ai/blog", "type": "官方博客"},
+  {"name": "Google Gemini", "url": "https://blog.google/technology/ai/", "type": "官方汇总/博客"},
+  {"name": "Perplexity AI", "url": "https://blog.perplexity.ai/", "type": "官方博客"},
+  {"name": "MIT Technology Review AI", "url": "https://www.technologyreview.com/feed/", "type": "RSS/Feed"},
+  {"name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/", "type": "RSS/Feed"},
+  {"name": "TechCrunch AI", "url": "https://techcrunch.com/tag/artificial-intelligence/feed/", "type": "RSS/Feed"},
+  {"name": "AI Trends", "url": "https://www.aitrends.com/feed/", "type": "RSS/Feed"},
+  {"name": "ArXiv cs.AI", "url": "https://export.arxiv.org/rss/cs.AI", "type": "RSS/Feed"},
+  {"name": "OpenAI Blog", "url": "https://openai.com/blog/", "type": "官方博客"},
+  {"name": "DeepMind Blog", "url": "https://deepmind.com/blog", "type": "官方博客"}
+]
